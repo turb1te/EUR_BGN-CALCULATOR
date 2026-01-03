@@ -242,23 +242,6 @@
                     </div>
                 </div>
                 
-                <!-- Mixed Change Toggle -->
-                <div class="flex items-center justify-between">
-                    <div>
-                        <label class="text-gray-700 font-medium">Смесено ресто</label>
-                        <p class="text-gray-500 text-sm">Връщане на EUR + BGN едновременно</p>
-                    </div>
-                    <div class="relative">
-                        <input type="checkbox" id="mixedChange" class="sr-only" onchange="updateSettings()">
-                        <div class="w-14 h-8 bg-gray-300 rounded-full cursor-pointer transition-colors" onclick="document.getElementById('mixedChange').click()">
-                            <div id="mixedChangeDot" class="absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow transition-transform"></div>
-                        </div>
-                    </div>
-                </div>
-                <!-- <div class="mt-2 p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-red-700 leading-snug">
-                    <strong>⚠ Важно:</strong> Съгласно закона за въвеждане на еврото смесено ресто (част в EUR, част в BGN) <span class="font-semibold">не е позволено</span>.
-                    Тази настройка е предназначена само за вътрешни симулации и обучение.
-                </div> -->
             </div>
         </div>
 
@@ -275,10 +258,10 @@
         
         // State
         let settings = {
-            mixedPayment: false,
-            mixedChange: false
+            mixedPayment: false
         };
         let paymentCurrency = 'EUR';
+        let lastReceiptAmount = 0;
 
         // Rounding function according to Article 13
         function roundCurrency(value) {
@@ -321,16 +304,12 @@
         // Update settings
         function updateSettings() {
             const mixedPayment = document.getElementById('mixedPayment').checked;
-            const mixedChange = document.getElementById('mixedChange').checked;
             
             settings.mixedPayment = mixedPayment;
-            settings.mixedChange = mixedChange;
             
             // Update toggle visuals
             const mixedPaymentDot = document.getElementById('mixedPaymentDot');
-            const mixedChangeDot = document.getElementById('mixedChangeDot');
             const mixedPaymentToggle = mixedPaymentDot.parentElement;
-            const mixedChangeToggle = mixedChangeDot.parentElement;
             
             if (mixedPayment) {
                 mixedPaymentDot.style.transform = 'translateX(24px)';
@@ -340,16 +319,6 @@
                 mixedPaymentDot.style.transform = 'translateX(0)';
                 mixedPaymentToggle.classList.add('bg-gray-300');
                 mixedPaymentToggle.classList.remove('bg-purple-600');
-            }
-            
-            if (mixedChange) {
-                mixedChangeDot.style.transform = 'translateX(24px)';
-                mixedChangeToggle.classList.remove('bg-gray-300');
-                mixedChangeToggle.classList.add('bg-purple-600');
-            } else {
-                mixedChangeDot.style.transform = 'translateX(0)';
-                mixedChangeToggle.classList.add('bg-gray-300');
-                mixedChangeToggle.classList.remove('bg-purple-600');
             }
             
             // Show/hide payment sections
@@ -365,6 +334,15 @@
             }
             
             calculateChange();
+        }
+
+        // Reset payment fields when receipt amount changes
+        function resetPaymentFields() {
+            document.getElementById('paymentAmount').value = '';
+            document.getElementById('paymentEUR').value = '';
+            document.getElementById('paymentBGN').value = '';
+            document.getElementById('paymentEquivalent').innerHTML = '';
+            document.getElementById('mixedPaymentTotal').innerHTML = '';
         }
 
         // Set payment currency
@@ -394,6 +372,12 @@
         function calculateChange() {
             const receiptInput = document.getElementById('receiptAmount');
             const receiptAmount = parseFloat(receiptInput.value) || 0;
+            
+            // Check if receipt amount changed and reset payment fields if it did
+            if (receiptAmount !== lastReceiptAmount) {
+                resetPaymentFields();
+                lastReceiptAmount = receiptAmount;
+            }
             
             // Show BGN equivalent of receipt
             const receiptBGNDiv = document.getElementById('receiptBGN');
@@ -477,9 +461,31 @@
                     // Change to return
                     let changeHTML = '';
                     
-                    // Check if customer paid more in a single currency
+                    // Check for overpayment warnings
                     let overpaymentWarning = '';
-                    if (!settings.mixedPayment) {
+                    let unnecessaryMixedPaymentWarning = '';
+                    
+                    if (settings.mixedPayment) {
+                        const paymentEUR = parseFloat(document.getElementById('paymentEUR').value) || 0;
+                        const paymentBGN = parseFloat(document.getElementById('paymentBGN').value) || 0;
+                        
+                        // Check if EUR payment alone covers the receipt and BGN is unnecessary
+                        if (paymentEUR >= receiptAmount && paymentBGN > 0) {
+                            unnecessaryMixedPaymentWarning = `
+                                <div class="mb-3 p-3 bg-red-50 border-2 border-red-300 rounded-lg">
+                                    <div class="flex items-center gap-2 text-red-700 font-bold text-sm mb-1">
+                                        <span class="text-lg">⚠️</span>
+                                        <span>ИЗЛИШНО ПЛАЩАНЕ</span>
+                                    </div>
+                                    <div class="text-red-600 text-sm leading-relaxed">
+                                        Клиентът дава <strong>${formatCurrency(paymentEUR, 'EUR')}</strong> (достатъчно за сметката от ${formatCurrency(receiptAmount, 'EUR')}) 
+                                        + <strong>${formatCurrency(paymentBGN, 'BGN')}</strong> в левове, което е <strong>излишно</strong>.
+                                        <br><span class="font-medium">Левовете не са необходими!</span>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    } else {
                         const paymentAmount = parseFloat(document.getElementById('paymentAmount').value) || 0;
                         const receiptInBGN = roundCurrency(eurToBgn(receiptAmount));
                         const paymentInBGN = paymentCurrency === 'EUR' ? roundCurrency(eurToBgn(paymentAmount)) : paymentAmount;
@@ -495,79 +501,23 @@
                         }
                     }
                     
-                    if (settings.mixedChange) {
-                        // Get current input values for mixed change
-                        const changeEurInput = document.getElementById('changeEurInput');
-                        const changeBgnInput = document.getElementById('changeBgnInput');
-                        const currentEurValue = changeEurInput ? changeEurInput.value : '';
-                        const currentBgnValue = changeBgnInput ? changeBgnInput.value : '';
-                        
-                        changeHTML = `
-                            <div class="p-4 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl">
-                                <div class="text-center mb-3">
-                                    <div class="text-gray-700 font-semibold">Общо ресто за връщане</div>
-                                    <div class="text-2xl font-bold text-purple-700">${formatCurrency(changeEUR, 'EUR')}</div>
-                                    <div class="text-gray-500 text-sm">= ${formatCurrency(changeBGN, 'BGN')}</div>
+                    changeHTML = `
+                        ${unnecessaryMixedPaymentWarning}
+                        <div class="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl">
+                            <div class="text-center">
+                                <div class="text-gray-600 text-sm mb-2">Ресто за връщане</div>
+                                <div class="flex items-center justify-center gap-3 flex-wrap">
+                                    <span class="text-purple-700 font-bold text-2xl md:text-3xl pulse-animation">${formatCurrency(changeEUR, 'EUR')}</span>
+                                    <span class="text-gray-400 font-medium">или</span>
+                                    <span class="text-green-600 font-bold text-2xl md:text-3xl">${formatCurrency(changeBGN, 'BGN')}</span>
                                 </div>
-                                
-                                <div class="border-t border-purple-200 pt-3 mt-3">
-                                    <div class="text-gray-600 text-sm mb-2 text-center">Въведете колко връщате:</div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label class="text-xs text-gray-500 mb-1 block">Връщам EUR:</label>
-                                            <input 
-                                                type="number" 
-                                                id="changeEurInput" 
-                                                step="0.01" 
-                                                min="0"
-                                                max="${changeEUR}"
-                                                placeholder="0.00"
-                                                value="${currentEurValue}"
-                                                class="w-full px-3 py-2 text-lg font-bold text-purple-700 border-2 border-purple-200 rounded-lg focus:border-purple-500 focus:outline-none"
-                                                oninput="calculateMixedChange(${changeEUR}, ${changeBGN}, 'EUR')"
-                                            >
-                                        </div>
-                                        <div>
-                                            <label class="text-xs text-gray-500 mb-1 block">Връщам BGN:</label>
-                                            <input 
-                                                type="number" 
-                                                id="changeBgnInput" 
-                                                step="0.01" 
-                                                min="0"
-                                                max="${changeBGN}"
-                                                placeholder="0.00"
-                                                value="${currentBgnValue}"
-                                                class="w-full px-3 py-2 text-lg font-bold text-green-700 border-2 border-green-200 rounded-lg focus:border-green-500 focus:outline-none"
-                                                oninput="calculateMixedChange(${changeEUR}, ${changeBGN}, 'BGN')"
-                                            >
-                                        </div>
-                                    </div>
-                                    
-                                    <div id="mixedChangeResult" class="mt-3 text-center">
-                                        <div class="text-gray-500 text-sm">Въведете сума в едното поле за да видите остатъка</div>
-                                    </div>
-                                </div>
-                                ${overpaymentWarning}
                             </div>
-                        `;
-                    } else {
-                        changeHTML = `
-                            <div class="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl">
-                                <div class="text-center">
-                                    <div class="text-gray-600 text-sm mb-2">Ресто за връщане</div>
-                                    <div class="flex items-center justify-center gap-3 flex-wrap">
-                                        <span class="text-purple-700 font-bold text-2xl md:text-3xl pulse-animation">${formatCurrency(changeEUR, 'EUR')}</span>
-                                        <span class="text-gray-400 font-medium">или</span>
-                                        <span class="text-green-600 font-bold text-2xl md:text-3xl">${formatCurrency(changeBGN, 'BGN')}</span>
-                                    </div>
-                                </div>
-                                <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-                                    <strong>📌 Правило:</strong> Рестото се връща в евро. При липса на евро – изцяло в левове.
-                                </div>
-                                ${overpaymentWarning}
+                            <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                                <strong>📌 Правило:</strong> Рестото се връща в евро. При липса на евро – изцяло в левове.
                             </div>
-                        `;
-                    }
+                            ${overpaymentWarning}
+                        </div>
+                    `;
                     
                     changeDisplay.innerHTML = changeHTML;
                 }
@@ -576,109 +526,6 @@
             }
         }
 
-        // Calculate mixed change (when user enters EUR or BGN amount)
-        function calculateMixedChange(totalChangeEUR, totalChangeBGN, changedField) {
-            const eurInput = document.getElementById('changeEurInput');
-            const bgnInput = document.getElementById('changeBgnInput');
-            const resultDiv = document.getElementById('mixedChangeResult');
-            
-            const enteredEUR = parseFloat(eurInput.value) || 0;
-            const enteredBGN = parseFloat(bgnInput.value) || 0;
-            
-            if (changedField === 'EUR' && enteredEUR > 0) {
-                // User entered EUR, calculate remaining in BGN
-                const remainingEUR = roundCurrency(totalChangeEUR - enteredEUR);
-                const remainingBGN = roundCurrency(eurToBgn(remainingEUR));
-                
-                if (remainingEUR < 0) {
-                    resultDiv.innerHTML = `
-                        <div class="p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                            ⚠️ Въвели сте повече EUR от необходимото!
-                        </div>
-                    `;
-                } else if (remainingEUR === 0) {
-                    resultDiv.innerHTML = `
-                        <div class="p-2 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
-                            ✅ Точно! Не остава нищо за връщане.
-                        </div>
-                    `;
-                    bgnInput.value = '';
-                } else {
-                    bgnInput.value = remainingBGN.toFixed(2);
-                    const enteredEURinBGN = roundCurrency(eurToBgn(enteredEUR));
-                    resultDiv.innerHTML = `
-                        <div class="p-3 bg-white border border-gray-200 rounded-lg space-y-2">
-                            <div class="text-gray-600 text-sm font-medium text-center">Общо връщате:</div>
-                            <div class="grid grid-cols-1 gap-2 text-sm">
-                                <div class="flex justify-between items-center px-2 py-1 bg-purple-50 rounded">
-                                    <span class="text-gray-600">В евро:</span>
-                                    <span class="font-bold text-purple-700">${formatCurrency(enteredEUR, 'EUR')} <span class="font-normal text-gray-500">(${formatCurrency(enteredEURinBGN, 'BGN')})</span></span>
-                                </div>
-                                <div class="flex justify-between items-center px-2 py-1 bg-green-50 rounded">
-                                    <span class="text-gray-600">В левове:</span>
-                                    <span class="font-bold text-green-700">${formatCurrency(remainingBGN, 'BGN')} <span class="font-normal text-gray-500">(${formatCurrency(roundCurrency(bgnToEur(remainingBGN)), 'EUR')})</span></span>
-                                </div>
-                                <div class="flex justify-between items-center px-2 py-1 bg-gray-100 rounded border-t border-gray-300">
-                                    <span class="text-gray-700 font-medium">Общо:</span>
-                                    <span class="font-bold text-gray-800">${formatCurrency(totalChangeEUR, 'EUR')} <span class="font-normal text-gray-500">(${formatCurrency(totalChangeBGN, 'BGN')})</span></span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }
-            } else if (changedField === 'BGN' && enteredBGN > 0) {
-                // User entered BGN, calculate remaining in EUR
-                const enteredBGNinEUR = roundCurrency(bgnToEur(enteredBGN));
-                const remainingEUR = roundCurrency(totalChangeEUR - enteredBGNinEUR);
-                const remainingBGNcalc = roundCurrency(eurToBgn(remainingEUR));
-                
-                if (remainingEUR < 0) {
-                    resultDiv.innerHTML = `
-                        <div class="p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                            ⚠️ Въвели сте повече BGN от необходимото!
-                        </div>
-                    `;
-                } else if (remainingEUR <= 0.01) {
-                    resultDiv.innerHTML = `
-                        <div class="p-2 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
-                            ✅ Точно! Не остава нищо за връщане.
-                        </div>
-                    `;
-                    eurInput.value = '';
-                } else {
-                    eurInput.value = remainingEUR.toFixed(2);
-                    resultDiv.innerHTML = `
-                        <div class="p-3 bg-white border border-gray-200 rounded-lg space-y-2">
-                            <div class="text-gray-600 text-sm font-medium text-center">Общо връщате:</div>
-                            <div class="grid grid-cols-1 gap-2 text-sm">
-                                <div class="flex justify-between items-center px-2 py-1 bg-green-50 rounded">
-                                    <span class="text-gray-600">В левове:</span>
-                                    <span class="font-bold text-green-700">${formatCurrency(enteredBGN, 'BGN')} <span class="font-normal text-gray-500">(${formatCurrency(enteredBGNinEUR, 'EUR')})</span></span>
-                                </div>
-                                <div class="flex justify-between items-center px-2 py-1 bg-purple-50 rounded">
-                                    <span class="text-gray-600">В евро:</span>
-                                    <span class="font-bold text-purple-700">${formatCurrency(remainingEUR, 'EUR')} <span class="font-normal text-gray-500">(${formatCurrency(remainingBGNcalc, 'BGN')})</span></span>
-                                </div>
-                                <div class="flex justify-between items-center px-2 py-1 bg-gray-100 rounded border-t border-gray-300">
-                                    <span class="text-gray-700 font-medium">Общо:</span>
-                                    <span class="font-bold text-gray-800">${formatCurrency(totalChangeEUR, 'EUR')} <span class="font-normal text-gray-500">(${formatCurrency(totalChangeBGN, 'BGN')})</span></span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }
-            } else {
-                // No valid input, show hint
-                resultDiv.innerHTML = `
-                    <div class="text-gray-500 text-sm">Въведете сума в едното поле за да видите остатъка</div>
-                `;
-                if (changedField === 'EUR') {
-                    bgnInput.value = '';
-                } else {
-                    eurInput.value = '';
-                }
-            }
-        }
 
         // Clear all
         function clearAll() {
